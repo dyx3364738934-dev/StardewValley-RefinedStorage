@@ -8,6 +8,7 @@ using StardewModdingAPI;
 using StardewValley;
 using StardewValley.Inventories;
 using StardewValley.Menus;
+using StardewValley.Network;
 using StardewValley.Objects;
 
 namespace RefinedStorage
@@ -20,7 +21,7 @@ namespace RefinedStorage
         public static void Apply(Harmony harmony)
         {
             // 独立逻辑，无上文
-            // 作用：缓存工作台私有字段引用并应用开箱展开与工作台全场景补丁
+            // 作用：缓存工作台私有字段引用并应用开箱展开、多人并发开箱拦截与工作台全场景补丁
             _standaloneMenuField = AccessTools.Field(typeof(CraftingPage), "_standaloneMenu");
             if (_standaloneMenuField == null)
             {
@@ -30,6 +31,7 @@ namespace RefinedStorage
             }
 
             ApplyChestShowMenuPatch(harmony);
+            ApplyChestCheckForActionPatch(harmony);
             ApplyWorkbenchPatch(harmony);
         }
 
@@ -57,6 +59,33 @@ namespace RefinedStorage
             }
         }
 
+        private static void ApplyChestCheckForActionPatch(Harmony harmony)
+        {
+            // 与上文：由 Apply 调度执行，负责补充多人并发开箱交互入口
+            // 作用：对 Chest.checkForAction(Farmer, bool) 挂载 Prefix，允许在他人持锁期间绕过互斥阻塞并发开箱
+            try
+            {
+                MethodInfo? checkForAction = AccessTools.Method(
+                    typeof(Chest),
+                    nameof(Chest.checkForAction),
+                    new[] { typeof(Farmer), typeof(bool) });
+                if (checkForAction == null)
+                {
+                    ModEntry.Instance.Monitor.Log("[Harmony] 未找到 Chest.checkForAction(Farmer, bool)，多人并发开箱拦截不可用。", LogLevel.Warn);
+                    return;
+                }
+
+                harmony.Patch(
+                    checkForAction,
+                    prefix: new HarmonyMethod(typeof(HarmonyPatches), nameof(Prefix_ChestCheckForAction)));
+                ModEntry.Instance.Monitor.Log("[Harmony] 已应用补丁：Chest.checkForAction(Farmer, bool)", LogLevel.Info);
+            }
+            catch (Exception ex)
+            {
+                ModEntry.Instance.Monitor.Log($"[Harmony] Chest.checkForAction(Farmer, bool) 补丁失败：{ex}", LogLevel.Error);
+            }
+        }
+
         private static void ApplyWorkbenchPatch(Harmony harmony)
         {
             // 与上文：由 Apply 调度执行，已在 Apply 阶段缓存 _standaloneMenu 字段
@@ -81,17 +110,84 @@ namespace RefinedStorage
             }
         }
 
+        private static bool Prefix_ChestCheckForAction(Chest __instance, Farmer who, bool justCheckingForActivity, ref bool __result)
+        {
+            // 与上文：由 Chest.checkForAction(Farmer, bool) 前置拦截，在原版请求互斥锁前生效
+            // 作用：按原版守卫核验玩家与白名单箱子，若允许并发且正被他人持锁则直接安全触发开箱并跳过原版锁阻塞
+            if (justCheckingForActivity || !Context.IsWorldReady)
+                return true;
+
+            RefinedStorageConfig? config = ModEntry.Instance?.Config;
+            if (config == null || !config.EnableExpandedStorage || !config.AllowConcurrentOpen)
+                return true;
+
+            if (__instance == null || who == null || !ReferenceEquals(who, Game1.player))
+                return true;
+
+            if (__instance.playerChest?.Value != true || __instance.giftbox?.Value == true || !ChestFilter.IsLinkablePlayerChest(__instance))
+                return true;
+
+            NetMutex? mutex = __instance.GetMutex();
+            if (mutex == null || !mutex.IsLocked() || mutex.IsLockHeld())
+                return true;
+
+            if (!Game1.didPlayerJustRightClick(ignoreNonMouseHeldInput: true))
+                return true;
+
+            // 与上文：已确认满足原版右键开箱前提且目标箱互斥锁正被其他玩家持有
+            // 作用：复刻原版锁成功路径安全播放开箱音效、停止角色移动并打开菜单（由 Postfix 接管），屏蔽原版互斥等待
+            try
+            {
+                Game1.playSound(__instance.fridge?.Value == true ? "doorCreak" : "openChest");
+            }
+            catch
+            {
+            }
+
+            try
+            {
+                Game1.player.Halt();
+            }
+            catch
+            {
+            }
+
+            try
+            {
+                __instance.ShowMenu();
+            }
+            catch (Exception ex)
+            {
+                ModEntry.Instance?.Monitor.Log($"[Harmony] 并发开箱打开菜单失败：{ex}", LogLevel.Error);
+                return true;
+            }
+
+            __result = true;
+            return false;
+        }
+
         private static void Postfix_ChestShowMenu(Chest __instance)
         {
             // 与上文：Chest.ShowMenu() 刚创建原版 ItemGrabMenu 并设为当前活跃菜单
-            // 作用：校验白名单与连通箱数，按配置替换为保留原版状态与高亮委托的 RefinedChestMenu
-            if (_isReplacingMenu || !ModEntry.Instance.Config.EnableExpandedStorage || !Context.IsWorldReady)
+            // 作用：在允许并发开箱时先释放自身持锁再按单箱配置判断早退，否则替换为保留原版状态与高亮委托的 RefinedChestMenu
+            RefinedStorageConfig? config = ModEntry.Instance?.Config;
+            if (_isReplacingMenu || config == null || !config.EnableExpandedStorage || !Context.IsWorldReady)
                 return;
 
             if (!ChestFilter.IsLinkablePlayerChest(__instance))
                 return;
 
-            if (Game1.activeClickableMenu is not ItemGrabMenu vanillaMenu || vanillaMenu is RefinedChestMenu)
+            if (Game1.activeClickableMenu is not ItemGrabMenu vanillaMenu)
+                return;
+
+            if (config.AllowConcurrentOpen)
+            {
+                NetMutex? mutex = __instance.GetMutex();
+                if (mutex != null && mutex.IsLockHeld())
+                    mutex.ReleaseLock();
+            }
+
+            if (vanillaMenu is RefinedChestMenu)
                 return;
 
             GameLocation? location = __instance.Location ?? Game1.player?.currentLocation;
@@ -103,11 +199,11 @@ namespace RefinedStorage
                 _isReplacingMenu = true;
 
                 List<(Chest Chest, Microsoft.Xna.Framework.Vector2 Tile)> members = ChestNetwork.FindLinkedChests(__instance, location);
-                if (members.Count <= 1 && !ModEntry.Instance.Config.ExpandSingleChest)
+                if (members.Count <= 1 && !config.ExpandSingleChest)
                     return;
 
                 var group = new LinkedChestGroup(__instance, location, members);
-                var expandedMenu = new RefinedChestMenu(group, ModEntry.Instance.Config);
+                var expandedMenu = new RefinedChestMenu(group, config);
 
                 expandedMenu.inventory.moveItemSound = vanillaMenu.inventory.moveItemSound;
                 if (vanillaMenu.inventory.highlightMethod != null)
@@ -126,7 +222,7 @@ namespace RefinedStorage
             }
             catch (Exception ex)
             {
-                ModEntry.Instance.Monitor.Log($"[Harmony] 展开联排箱子菜单失败：{ex}", LogLevel.Error);
+                ModEntry.Instance?.Monitor.Log($"[Harmony] 展开联排箱子菜单失败：{ex}", LogLevel.Error);
             }
             finally
             {

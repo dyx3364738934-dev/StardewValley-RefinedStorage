@@ -71,7 +71,8 @@ namespace RefinedStorage.Storage
             IList<Item?> playerItems,
             LinkedChestGroup group,
             List<int>? touchedGlobalSlots = null,
-            List<(Item Proto, int PlayerSlot)>? transferredFromSlots = null)
+            List<(Item Proto, int PlayerSlot)>? transferredFromSlots = null,
+            Func<Item, bool>? shouldExclude = null)
         {
             // 独立逻辑，无上文
             // 作用：构建整组箱内物品的 QualifiedItemId 索引，用于后续全组同款亲和判定
@@ -99,7 +100,7 @@ namespace RefinedStorage.Storage
                 return 0;
 
             // 与上文：已建立箱组同款索引并确认组内非空
-            // 作用：遍历玩家背包，对组内已有的同款先并入未满堆、有余量再占首个空槽，同时记录变更槽位与飞行精灵原型
+            // 作用：遍历玩家背包（跳过排除委托命中项），对组内已有的同款先并入未满堆、有余量再占首个空槽
             int totalMoved = 0;
             HashSet<int>? seenTouched = touchedGlobalSlots != null ? new HashSet<int>() : null;
 
@@ -107,6 +108,9 @@ namespace RefinedStorage.Storage
             {
                 Item? current = playerItems[i];
                 if (current == null || current.Stack <= 0)
+                    continue;
+
+                if (shouldExclude != null && shouldExclude(current))
                     continue;
 
                 if (!affinityById.TryGetValue(current.QualifiedItemId, out List<Item>? candidates))

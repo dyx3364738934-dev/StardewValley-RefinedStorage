@@ -4,6 +4,7 @@ using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Input;
 using RefinedStorage.Ime;
+using RefinedStorage.QuickStack;
 using RefinedStorage.Storage;
 using StardewValley;
 using StardewValley.Menus;
@@ -13,11 +14,12 @@ namespace RefinedStorage.UI
 {
     public sealed class RefinedChestMenu : ItemGrabMenu
     {
-        private readonly LinkedChestGroup _group;
+        private LinkedChestGroup _group;
         private readonly RefinedStorageConfig _config;
-        private readonly WindowedSlotList _window;
-        private readonly int _columns;
-        private readonly int _visibleRows;
+        private WindowedSlotList _window;
+        private int _columns;
+        private int _visibleRows;
+        private long _lastGroupStamp;
         private readonly HashSet<string> _chestItemNames = new HashSet<string>(StringComparer.Ordinal);
 
         private InGamePinyinBox? _searchBox;
@@ -61,15 +63,11 @@ namespace RefinedStorage.UI
                 allowExitWithHeldItem: false)
         {
             // 独立逻辑，无上文
-            // 作用：初始化联排箱组窗口视图、存取回调、搜索栏、滚动条及自适应双栏布局
+            // 作用：初始化联排箱组窗口视图、存取回调、搜索栏、滚动条、自适应双栏布局与初始变更戳记
             _group = group ?? throw new ArgumentNullException(nameof(group));
             _config = config ?? new RefinedStorageConfig();
             _columns = _group.PreferredColumns;
-
-            int viewportHeight = Game1.uiViewport.Height;
-            int maxFitRows = viewportHeight >= 900 ? 5 : (viewportHeight >= 760 ? 4 : 3);
-            int neededRows = Math.Max(3, (_group.TotalCapacity + _columns - 1) / _columns);
-            _visibleRows = Math.Min(maxFitRows, neededRows);
+            _visibleRows = ComputeVisibleRows(_group.TotalCapacity, _columns);
 
             _window = new WindowedSlotList(_group, _columns, _visibleRows);
             behaviorFunction = OnDepositFromInventory;
@@ -79,6 +77,7 @@ namespace RefinedStorage.UI
             InitializeSearchControls();
             InitializeScrollBarControls();
             ApplyLayout();
+            _lastGroupStamp = _group.ComputeChangeStamp();
         }
 
         public override void RepositionSideButtons()
@@ -174,14 +173,13 @@ namespace RefinedStorage.UI
         public override void receiveScrollWheelAction(int direction)
         {
             // 与上文：在菜单活跃期间收到鼠标滚轮事件
-            // 作用：优先将候选浮窗内滚轮交给输入法翻页，否则按方向滚动箱组投影窗口
+            // 作用：优先将候选浮窗内滚轮交给输入法翻页，否则直接滚动箱组投影窗口（不调用空基类以隔离 IClickableMenu 滚轮前缀劫持）
             if (_config.EnableSearchBar && _searchBox != null &&
                 _searchBox.ReceiveScrollWheel(direction, Game1.getMouseX(), Game1.getMouseY()))
             {
                 return;
             }
 
-            base.receiveScrollWheelAction(direction);
             if (_window.MaxScrollRow <= 0 || _window.TotalRows <= _window.VisibleRows)
             {
                 return;
@@ -372,7 +370,7 @@ namespace RefinedStorage.UI
         public override void update(GameTime time)
         {
             // 与上文：游戏每帧更新菜单状态
-            // 作用：驱动自建输入法键盘采集与箱内优先词排序，同步刷新过滤投影并在箱组失效时安全退出
+            // 作用：校验箱组并在仅邻居被拆时安全重连不踢人、每帧零分配检测队友库存改动实时刷新，并驱动输入法采集
             base.update(time);
             if (Game1.activeClickableMenu != this)
             {
@@ -381,9 +379,20 @@ namespace RefinedStorage.UI
 
             if (!_group.ValidateStillPresent())
             {
-                emergencyShutDown();
-                Game1.exitActiveMenu();
-                return;
+                if (!TryRebuildGroupOnAnchorPreserved())
+                {
+                    emergencyShutDown();
+                    Game1.exitActiveMenu();
+                    return;
+                }
+            }
+
+            long currentStamp = _group.ComputeChangeStamp();
+            if (currentStamp != _lastGroupStamp)
+            {
+                _lastGroupStamp = currentStamp;
+                RefreshChestItemNames();
+                RefreshProjection();
             }
 
             if (_searchBox != null)
@@ -723,17 +732,19 @@ namespace RefinedStorage.UI
             {
                 RefreshProjection();
             }
+            _lastGroupStamp = _group.ComputeChangeStamp();
         }
 
         private void OnGrabFromChest(Item item, Farmer who)
         {
             // 独立逻辑，无上文
-            // 作用：从箱组取物后刷新箱内优先词与搜索过滤投影，绝不重建菜单
+            // 作用：从箱组取物后刷新箱内优先词、搜索过滤投影与变更戳记，绝不重建菜单
             RefreshChestItemNames();
             if (_window.IsFilterActive)
             {
                 RefreshProjection();
             }
+            _lastGroupStamp = _group.ComputeChangeStamp();
         }
 
         private bool HandleSearchLeftClick(int x, int y)
@@ -903,10 +914,11 @@ namespace RefinedStorage.UI
         private void HandleOrganizeButton()
         {
             // 与上文：玩家点击了右侧整理按钮
-            // 作用：执行事务化跨箱整理并原地刷新优先词与投影，按配置弹出汇总提示
+            // 作用：执行事务化跨箱整理并原地刷新优先词、投影与变更戳记，按配置弹出汇总提示
             OpResult result = StorageOps.Tidy(_group, out int stackCount, out _);
             RefreshChestItemNames();
             RefreshProjection();
+            _lastGroupStamp = _group.ComputeChangeStamp();
             Game1.playSound("Ship");
 
             if (!_config.ShowNotification)
@@ -935,13 +947,19 @@ namespace RefinedStorage.UI
         private void HandleFillStacksButton()
         {
             // 与上文：玩家点击了右侧快速堆叠按钮
-            // 作用：调用全组同款亲和快速堆叠，原地刷新投影并触发箱内抖动与背包飞行精灵动画
+            // 作用：调用全组同款亲和快速堆叠（保护收藏锁定物品），原地刷新投影并触发箱内抖动与飞行精灵动画
             var touchedGlobalSlots = new List<int>();
             var transferredFromSlots = new List<(Item Proto, int PlayerSlot)>();
-            StorageOps.FillOutStacks(base.inventory.actualInventory, _group, touchedGlobalSlots, transferredFromSlots);
+            StorageOps.FillOutStacks(
+                base.inventory.actualInventory,
+                _group,
+                touchedGlobalSlots,
+                transferredFromSlots,
+                item => _config.EnableFavoriteLock && FavoriteLock.IsFavorite(item));
 
             RefreshChestItemNames();
             RefreshProjection();
+            _lastGroupStamp = _group.ComputeChangeStamp();
 
             if (touchedGlobalSlots.Count > 0)
             {
@@ -1103,6 +1121,53 @@ namespace RefinedStorage.UI
             int travel = Math.Max(0, _scrollBarRunner.Height - _scrollBar.bounds.Height);
             float ratio = (float)_window.ScrollRow / _window.MaxScrollRow;
             _scrollBar.bounds.Y = _scrollBarRunner.Y + (int)Math.Round(ratio * travel);
+        }
+
+        private static int ComputeVisibleRows(int totalCapacity, int columns)
+        {
+            // 独立逻辑，无上文
+            // 作用：根据当前视口高度与箱组总容量计算自适应可见行数
+            int viewportHeight = Game1.uiViewport.Height;
+            int maxFitRows = viewportHeight >= 900 ? 5 : (viewportHeight >= 760 ? 4 : 3);
+            int neededRows = Math.Max(3, (totalCapacity + columns - 1) / columns);
+            return Math.Min(maxFitRows, neededRows);
+        }
+
+        private bool TryRebuildGroupOnAnchorPreserved()
+        {
+            // 与上文：update 检测到既有成员箱列表不再完整有效时调用
+            // 作用：若锚点箱仍在原坐标且符合白名单，则重扫连通网络原地重建箱组与窗口布局，避免因邻居被拆误踢当前玩家
+            GameLocation? location = _group.Location;
+            Chest anchor = _group.AnchorChest;
+            if (location?.objects == null || anchor == null || !ChestFilter.IsLinkablePlayerChest(anchor))
+            {
+                return false;
+            }
+
+            if (!location.objects.TryGetValue(_group.AnchorTile, out StardewValley.Object? anchorObj) ||
+                !ReferenceEquals(anchorObj, anchor))
+            {
+                return false;
+            }
+
+            List<(Chest Chest, Vector2 Tile)> members = ChestNetwork.FindLinkedChests(anchor, location);
+            if (members.Count == 0)
+            {
+                return false;
+            }
+
+            int previousScrollRow = _window.ScrollRow;
+            _group = new LinkedChestGroup(anchor, location, members);
+            _columns = _group.PreferredColumns;
+            _visibleRows = ComputeVisibleRows(_group.TotalCapacity, _columns);
+            _window = new WindowedSlotList(_group, _columns, _visibleRows);
+
+            RefreshChestItemNames();
+            _window.ScrollRow = previousScrollRow;
+            _window.RebuildProjection(_searchBox?.EffectiveSearchQuery);
+            ApplyLayout();
+            _lastGroupStamp = _group.ComputeChangeStamp();
+            return true;
         }
 
         private void ReleaseSearchFocus()

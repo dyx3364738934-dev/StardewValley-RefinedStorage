@@ -43,7 +43,8 @@ namespace RefinedStorage.Storage
                 return new List<(Chest Chest, Vector2 Tile)> { (anchorChest, anchorChest.TileLocation) };
 
             // 与上文：已获取锚点坐标与全场景可连通箱映射表
-            // 作用：执行 8 方向 BFS 查找整组连通箱，过滤被他人锁定的邻居后按 Y 升序、X 升序排序返回
+            // 作用：执行 8 方向 BFS 查找整组连通箱，按并发配置决定是否过滤他人锁箱后按 Y 升序、X 升序排序返回
+            bool excludeLocked = ModEntry.Instance?.Config is { AllowConcurrentOpen: false };
             var result = new List<(Chest Chest, Vector2 Tile)>();
             var visited = new HashSet<Vector2> { startTile.Value };
             var seenChests = new HashSet<Chest>(ReferenceEqualityComparer.Instance);
@@ -56,7 +57,7 @@ namespace RefinedStorage.Storage
                 if (!tileToChest.TryGetValue(tile, out Chest? chest))
                     continue;
 
-                if (seenChests.Add(chest) && !ChestFilter.IsLockedByOther(chest, anchorChest))
+                if (seenChests.Add(chest) && (!excludeLocked || !ChestFilter.IsLockedByOther(chest, anchorChest)))
                     result.Add((chest, tile));
 
                 for (int i = 0; i < AdjacentOffsets.Length; i++)

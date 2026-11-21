@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Runtime.CompilerServices;
 using Microsoft.Xna.Framework;
 using StardewValley;
 using StardewValley.Inventories;
@@ -26,6 +27,7 @@ namespace RefinedStorage.Storage
         private readonly int[] _offsets;
 
         public Chest AnchorChest { get; }
+        public Vector2 AnchorTile { get; }
         public GameLocation Location { get; }
         public IReadOnlyList<(Chest Chest, Vector2 Tile)> Members { get; }
         public int ChestCount => Members.Count;
@@ -36,10 +38,11 @@ namespace RefinedStorage.Storage
         public LinkedChestGroup(Chest anchorChest, GameLocation location, IReadOnlyList<(Chest Chest, Vector2 Tile)> members)
         {
             // 独立逻辑，无上文
-            // 作用：保存锚点与场景引用并拷贝成员箱列表，预计算全局槽位偏移、总容量与大箱子标记
+            // 作用：保存锚点与场景引用及锚点坐标并拷贝成员箱列表，预计算全局槽位偏移、总容量与大箱子标记
             AnchorChest = anchorChest ?? throw new ArgumentNullException(nameof(anchorChest));
             Location = location;
 
+            Vector2 anchorTile = anchorChest.TileLocation;
             int count = members?.Count ?? 0;
             var copied = new List<(Chest Chest, Vector2 Tile)>(count);
             if (members != null)
@@ -48,9 +51,15 @@ namespace RefinedStorage.Storage
                 {
                     var entry = members[i];
                     if (entry.Chest != null)
+                    {
                         copied.Add(entry);
+                        if (ReferenceEquals(entry.Chest, AnchorChest))
+                            anchorTile = entry.Tile;
+                    }
                 }
             }
+
+            AnchorTile = anchorTile;
 
             _members = copied.ToArray();
             Members = Array.AsReadOnly(_members);
@@ -177,13 +186,14 @@ namespace RefinedStorage.Storage
         public bool ValidateStillPresent()
         {
             // 独立逻辑，无上文
-            // 作用：校验所属场景是否仍完整保有锚点箱与所有成员箱且均合法未锁
+            // 作用：校验所属场景、锚点与全部成员箱物理存在且符合白名单，仅在关闭并发模式时检查他人互斥锁
             if (Location?.objects == null || AnchorChest == null || _members.Length == 0)
                 return false;
 
             if (!ChestFilter.IsLinkablePlayerChest(AnchorChest))
                 return false;
 
+            bool excludeLocked = ModEntry.Instance?.Config is { AllowConcurrentOpen: false };
             bool anchorPresent = false;
             for (int i = 0; i < _members.Length; i++)
             {
@@ -191,7 +201,10 @@ namespace RefinedStorage.Storage
                 if (!Location.objects.TryGetValue(tile, out StardewValley.Object? obj) || !ReferenceEquals(obj, chest))
                     return false;
 
-                if (!ChestFilter.IsLinkablePlayerChest(chest) || ChestFilter.IsLockedByOther(chest, AnchorChest))
+                if (!ChestFilter.IsLinkablePlayerChest(chest))
+                    return false;
+
+                if (excludeLocked && ChestFilter.IsLockedByOther(chest, AnchorChest))
                     return false;
 
                 if (ReferenceEquals(chest, AnchorChest))
@@ -201,16 +214,61 @@ namespace RefinedStorage.Storage
             return anchorPresent;
         }
 
+        public long ComputeChangeStamp()
+        {
+            // 与上文：依赖构造阶段锁定的成员箱数组与各自容量上限
+            // 作用：零堆分配汇总各箱数量、Inventory 槽位变更戳与槽内物品引用/ID/数量/品质，用于每帧增量同步检测
+            unchecked
+            {
+                const long fnvPrime = 1099511628211L;
+                long hash = unchecked((long)14695981039346656037UL);
+
+                for (int c = 0; c < _members.Length; c++)
+                {
+                    hash = (hash ^ c) * fnvPrime;
+                    Inventory? items = _members[c].Chest.Items;
+                    if (items == null)
+                    {
+                        hash = (hash ^ -1L) * fnvPrime;
+                        continue;
+                    }
+
+                    hash = (hash ^ items.Count) * fnvPrime;
+                    hash = (hash ^ items.LastTickSlotChanged) * fnvPrime;
+
+                    int limit = Math.Min(items.Count, _capacities[c]);
+                    for (int s = 0; s < limit; s++)
+                    {
+                        Item? item = items[s];
+                        if (item == null)
+                            continue;
+
+                        hash = (hash ^ s) * fnvPrime;
+                        hash = (hash ^ RuntimeHelpers.GetHashCode(item)) * fnvPrime;
+                        hash = (hash ^ item.Stack) * fnvPrime;
+                        hash = (hash ^ item.Quality) * fnvPrime;
+
+                        string? qid = item.QualifiedItemId;
+                        if (qid != null)
+                            hash = (hash ^ StringComparer.Ordinal.GetHashCode(qid)) * fnvPrime;
+                    }
+                }
+
+                return hash;
+            }
+        }
+
         public void NormalizeChestLists()
         {
-            // 与上文：基于已绑定的成员箱列表直接维护其底层 Inventory
-            // 作用：清除 Stack <= 0 幽灵条目并仅修剪尾部多余 null，保留中间空槽布局而不坍缩
+            // 与上文：基于已绑定的成员箱列表与各自容量上限维护底层 Inventory
+            // 作用：清除 Stack <= 0 幽灵条目并仅修剪超出箱子容量上限的尾部多余 null，避免并发访问引发 NetList 抖动
             for (int c = 0; c < _members.Length; c++)
             {
                 Inventory? items = _members[c].Chest.Items;
                 if (items == null)
                     continue;
 
+                int capacity = _capacities[c];
                 for (int s = 0; s < items.Count; s++)
                 {
                     Item? item = items[s];
@@ -218,7 +276,7 @@ namespace RefinedStorage.Storage
                         items[s] = null!;
                 }
 
-                while (items.Count > 0 && items[items.Count - 1] == null)
+                while (items.Count > capacity && items[items.Count - 1] == null)
                     items.RemoveAt(items.Count - 1);
             }
         }

@@ -28,14 +28,14 @@ namespace RefinedStorage.Storage
         public static bool IsLockedByOther(Chest chest, Chest anchorChest)
         {
             // 与上文：在连通发现与状态校验阶段配合白名单过滤容器
-            // 作用：跳过锚点箱自身后，空值安全地检测目标箱 NetMutex 是否正被他人锁定
+            // 作用：跳过锚点箱自身后，空值安全地检测目标箱 NetMutex 是否正被其他玩家持有锁定
             if (chest == null || ReferenceEquals(chest, anchorChest))
                 return false;
 
             try
             {
                 NetMutex? mutex = chest.GetMutex();
-                return mutex != null && mutex.IsLocked();
+                return mutex != null && mutex.IsLocked() && !mutex.IsLockHeld();
             }
             catch
             {
