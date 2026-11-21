@@ -186,14 +186,13 @@ namespace RefinedStorage.Storage
         public bool ValidateStillPresent()
         {
             // 独立逻辑，无上文
-            // 作用：校验所属场景、锚点与全部成员箱物理存在且符合白名单，仅在关闭并发模式时检查他人互斥锁
+            // 作用：校验所属场景、锚点与全部成员箱物理存在且符合白名单
             if (Location?.objects == null || AnchorChest == null || _members.Length == 0)
                 return false;
 
             if (!ChestFilter.IsLinkablePlayerChest(AnchorChest))
                 return false;
 
-            bool excludeLocked = ModEntry.Instance?.Config is { AllowConcurrentOpen: false };
             bool anchorPresent = false;
             for (int i = 0; i < _members.Length; i++)
             {
@@ -202,9 +201,6 @@ namespace RefinedStorage.Storage
                     return false;
 
                 if (!ChestFilter.IsLinkablePlayerChest(chest))
-                    return false;
-
-                if (excludeLocked && ChestFilter.IsLockedByOther(chest, AnchorChest))
                     return false;
 
                 if (ReferenceEquals(chest, AnchorChest))

@@ -29,6 +29,10 @@
       <HintPath>E:\SteamLibrary\steamapps\common\Stardew Valley\smapi-internal\0Harmony.dll</HintPath>
       <Private>false</Private>
     </Reference>
+    <Reference Include="SMAPI.Toolkit.CoreInterfaces">
+      <HintPath>E:\SteamLibrary\steamapps\common\Stardew Valley\smapi-internal\SMAPI.Toolkit.CoreInterfaces.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
   </ItemGroup>
 
   <ItemGroup>

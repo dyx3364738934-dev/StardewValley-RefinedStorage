@@ -1,7 +1,9 @@
 using HarmonyLib;
 using RefinedStorage.Ime;
+using RefinedStorage.Integration;
 using RefinedStorage.QuickStack;
 using RefinedStorage.Storage;
+using RefinedStorage.UI;
 using StardewModdingAPI;
 using StardewModdingAPI.Events;
 using StardewValley;
@@ -19,15 +21,15 @@ namespace RefinedStorage
         public void TriggerSort(Chest chest)
         {
             // 独立逻辑，无上文
-            // 作用：校验联排整理开关与场景后，触发指定箱子所属联排网络跨箱整理
-            if (chest == null || !ModEntry.Instance.Config.EnableLinkedSort)
+            // 作用：校验目标箱子与场景后，经由串行组队列触发指定箱子所属联排网络跨箱整理
+            if (chest == null)
                 return;
 
             GameLocation? location = chest.Location ?? Game1.player?.currentLocation;
             if (location == null)
                 return;
 
-            StorageOps.TidyChests(location, chest, out _, out _);
+            StorageOpQueue.EnqueueOrExecuteTidy(location, chest, out _, out _, out _);
         }
     }
 
@@ -37,52 +39,54 @@ namespace RefinedStorage
         internal RefinedStorageConfig Config { get; private set; } = null!;
         private Harmony? _harmony;
         private QuickStackController? _quickStackController;
+        private ItemRadarController? _itemRadarController;
+        private ChestHoverPreviewController? _chestHoverPreviewController;
 
         public override void Entry(IModHelper helper)
         {
             // 独立逻辑，无上文
-            // 作用：保存 Mod 单例与用户配置，装配一键堆叠控制器、注册启动与存档词库事件并挂载 Harmony 补丁
+            // 作用：保存 Mod 单例与用户配置，初始化串行队列、一键堆叠、找物雷达与地上箱悬停预览控制器并挂载 Harmony 补丁
             Instance = this;
             Config = helper.ReadConfig<RefinedStorageConfig>();
 
+            StorageOpQueue.Initialize(helper, () => Config);
             _quickStackController = new QuickStackController(helper, () => Config);
+            _itemRadarController = new ItemRadarController(helper, () => Config);
+            _chestHoverPreviewController = new ChestHoverPreviewController(
+                helper,
+                () => Config,
+                () => _quickStackController?.IsHoveringHudButton ?? false,
+                () => _itemRadarController?.IsOpen ?? false);
+
             helper.Events.GameLoop.GameLaunched += OnGameLaunched;
             helper.Events.GameLoop.SaveLoaded += OnSaveLoaded;
 
             _harmony = new Harmony("Koko.RefinedStorage");
             HarmonyPatches.Apply(_harmony);
 
-            string features = "邻居箱子自动连通";
-            if (Config.EnableExpandedStorage)
-                features += " + 开箱展开合并存储";
-            if (Config.AllowConcurrentOpen)
-                features += " + 多人并发开箱";
-            if (Config.EnableWorkbenchRangeBoost)
-                features += " + 工作台全场景覆盖";
-            if (Config.EnableBuiltInPinyinIme)
-                features += " + 游戏内自建拼音输入法";
-            if (Config.EnableQuickStack || Config.EnableFavoriteLock)
-                features += " + 物品栏一键堆叠与收藏锁定";
-            Monitor.Log($"精致存储（RefinedStorage v2.3.0）已加载：{features}。", LogLevel.Info);
+            Monitor.Log($"已加载（v{ModManifest.Version}）", LogLevel.Info);
         }
 
         private void OnGameLaunched(object? sender, GameLaunchedEventArgs e)
         {
             // 与上文：Entry 已完成事件与 Harmony 初始化，此时所有其他 Mod 已加载进注册表
-            // 作用：检测旧版滚动箱子与外置一键堆叠，卸载冲突滚轮补丁并抑制内置热键绘制以防止双倍触发
+            // 作用：软注册 GMCM 配置菜单并检测旧版滚动箱子与外置一键堆叠，卸载冲突补丁且抑制重复绘制
+            GmcmRegistrar.Register(
+                Helper,
+                ModManifest,
+                () => Config,
+                () => Config = new RefinedStorageConfig(),
+                () => Helper.WriteConfig(Config));
+
             if (Helper.ModRegistry.IsLoaded("Koko.LinkedChests"))
             {
-                Monitor.Log(
-                    "检测到旧版滚动箱子（Koko.LinkedChests）仍在加载，已卸载其 Harmony 补丁以防滚轮切箱冲突；建议从 Mods 目录移除 LinkedChests。",
-                    LogLevel.Warn);
+                Monitor.Log("检测到冲突 Mod Koko.LinkedChests，已自动接管，建议移除。", LogLevel.Warn);
                 _harmony?.UnpatchAll("Koko.LinkedChests");
             }
 
             if (Helper.ModRegistry.IsLoaded("Koko.QuickStack"))
             {
-                Monitor.Log(
-                    "检测到独立版一键堆叠（Koko.QuickStack）仍在加载，已让渡内置一键堆叠按钮与收藏星标绘制以防双倍触发；建议从 Mods 目录移除 QuickStack。",
-                    LogLevel.Warn);
+                Monitor.Log("检测到冲突 Mod Koko.QuickStack，已自动接管，建议移除。", LogLevel.Warn);
                 if (_quickStackController != null)
                     _quickStackController.IsSuppressedByExternalMod = true;
             }

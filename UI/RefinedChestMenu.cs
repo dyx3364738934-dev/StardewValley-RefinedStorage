@@ -6,6 +6,7 @@ using Microsoft.Xna.Framework.Input;
 using RefinedStorage.Ime;
 using RefinedStorage.QuickStack;
 using RefinedStorage.Storage;
+using StardewModdingAPI;
 using StardewValley;
 using StardewValley.Menus;
 using StardewValley.Objects;
@@ -15,7 +16,6 @@ namespace RefinedStorage.UI
     public sealed class RefinedChestMenu : ItemGrabMenu
     {
         private LinkedChestGroup _group;
-        private readonly RefinedStorageConfig _config;
         private WindowedSlotList _window;
         private int _columns;
         private int _visibleRows;
@@ -65,7 +65,6 @@ namespace RefinedStorage.UI
             // 独立逻辑，无上文
             // 作用：初始化联排箱组窗口视图、存取回调、搜索栏、滚动条、自适应双栏布局与初始变更戳记
             _group = group ?? throw new ArgumentNullException(nameof(group));
-            _config = config ?? new RefinedStorageConfig();
             _columns = _group.PreferredColumns;
             _visibleRows = ComputeVisibleRows(_group.TotalCapacity, _columns);
 
@@ -174,7 +173,7 @@ namespace RefinedStorage.UI
         {
             // 与上文：在菜单活跃期间收到鼠标滚轮事件
             // 作用：优先将候选浮窗内滚轮交给输入法翻页，否则直接滚动箱组投影窗口（不调用空基类以隔离 IClickableMenu 滚轮前缀劫持）
-            if (_config.EnableSearchBar && _searchBox != null &&
+            if (_searchBox != null &&
                 _searchBox.ReceiveScrollWheel(direction, Game1.getMouseX(), Game1.getMouseY()))
             {
                 return;
@@ -256,7 +255,7 @@ namespace RefinedStorage.UI
         {
             // 与上文：玩家在箱子界面执行鼠标右键点击
             // 作用：优先将候选栏、模式按钮与框内右键清空交由输入法处理，外部点击失焦后按原版规则存取
-            if (_config.EnableSearchBar && _searchBox != null)
+            if (_searchBox != null)
             {
                 bool handled = _searchBox.ReceiveRightClick(x, y);
                 if (handled)
@@ -342,7 +341,7 @@ namespace RefinedStorage.UI
                 _scrollBar?.tryHover(x, y);
             }
 
-            if (_config.EnableSearchBar && _searchBox != null && _searchBox.Selected && _searchBox.IsComposing &&
+            if (_searchBox != null && _searchBox.Selected && _searchBox.IsComposing &&
                 _searchBox.CandidateBarBounds.Contains(x, y))
             {
                 hoveredItem = null;
@@ -350,19 +349,19 @@ namespace RefinedStorage.UI
                 return;
             }
 
-            if (_config.EnableSearchBar && _searchBox != null && _searchBox.ModeButtonBounds.Contains(x, y) && hoveredItem == null)
+            if (_searchBox != null && _searchBox.ModeButtonBounds.Contains(x, y) && hoveredItem == null)
             {
-                hoverText = _searchBox.BuiltInImeEnabled ? "点击或按 Shift 切换中/英输入" : "自建输入法已禁用 (仅英文)";
+                hoverText = "Shift 切中/英";
             }
 
-            if (_config.EnableSearchBar && _clearSearchButton != null)
+            if (_clearSearchButton != null)
             {
                 _clearSearchButton.tryHover(x, y, 0.25f);
                 if (_clearSearchButton.containsPoint(x, y) &&
                     (!string.IsNullOrEmpty(_searchBox?.Text) || _searchBox?.IsComposing == true) &&
                     hoveredItem == null)
                 {
-                    hoverText = "清空搜索";
+                    hoverText = "清空";
                 }
             }
         }
@@ -429,10 +428,7 @@ namespace RefinedStorage.UI
                 transferredItemSprite.Draw(b);
             }
 
-            if (_config.EnableSearchBar)
-            {
-                _searchBox?.DrawCandidatePopup(b);
-            }
+            _searchBox?.DrawCandidatePopup(b);
 
             DrawTooltipsAndCursor(b);
         }
@@ -455,20 +451,13 @@ namespace RefinedStorage.UI
 
         private void InitializeSearchControls()
         {
-            // 与上文：在构造阶段确认 _config 配置后调用
+            // 与上文：在构造阶段初始化窗口组件后调用
             // 作用：预热游戏拼音词库，加载原版文本框贴图并创建游戏内拼音输入框与清空按钮
-            if (!_config.EnableSearchBar)
-            {
-                return;
-            }
-
             PinyinLexicon.Instance.EnsureGameVocabularyLoaded();
             Texture2D textBoxTexture = Game1.content.Load<Texture2D>("LooseSprites\\textBox");
-            bool enableIme = _config.EnableBuiltInPinyinIme;
             _searchBox = new InGamePinyinBox(textBoxTexture, Game1.smallFont, Game1.textColor)
             {
-                BuiltInImeEnabled = enableIme,
-                ChineseMode = enableIme
+                ChineseMode = true
             };
 
             _clearSearchButton = new ClickableTextureComponent(
@@ -510,7 +499,7 @@ namespace RefinedStorage.UI
 
             int gridWidth = _columns * 64;
             int gridHeight = 64 * _visibleRows + 16;
-            int headerOffset = _config.EnableSearchBar ? 86 : 70;
+            const int headerOffset = 86;
             const int upperBottomPad = 32;
             const int lowerMenuHeight = 672;
             const int sectionGap = 12;
@@ -751,7 +740,7 @@ namespace RefinedStorage.UI
         {
             // 与上文：receiveLeftClick 入口优先判定搜索栏交互
             // 作用：优先拦截候选浮窗与清空叉号点击，再转发输入框与切换按钮并及时同步过滤投影
-            if (!_config.EnableSearchBar || _searchBox == null)
+            if (_searchBox == null)
             {
                 return false;
             }
@@ -914,33 +903,26 @@ namespace RefinedStorage.UI
         private void HandleOrganizeButton()
         {
             // 与上文：玩家点击了右侧整理按钮
-            // 作用：执行事务化跨箱整理并原地刷新优先词、投影与变更戳记，按配置弹出汇总提示
-            OpResult result = StorageOps.Tidy(_group, out int stackCount, out _);
-            RefreshChestItemNames();
-            RefreshProjection();
-            _lastGroupStamp = _group.ComputeChangeStamp();
+            // 作用：通过联排组串行队列提交或执行最小差异跨箱整理，本地执行后原地刷新并仅在校验回滚时记 Warn 日志
+            OpResult result = StorageOpQueue.EnqueueOrExecuteTidy(
+                _group.Location,
+                _group.AnchorChest,
+                out _,
+                out _,
+                out bool deferredToHost);
+
+            if (!deferredToHost)
+            {
+                RefreshChestItemNames();
+                RefreshProjection();
+                _lastGroupStamp = _group.ComputeChangeStamp();
+            }
+
             Game1.playSound("Ship");
 
-            if (!_config.ShowNotification)
+            if (result == OpResult.RolledBack)
             {
-                return;
-            }
-
-            if (result == OpResult.Ok)
-            {
-                Game1.addHUDMessage(new HUDMessage($"整理了 {_group.ChestCount} 个链接箱子，共 {stackCount} 组物品", HUDMessage.newQuest_type)
-                {
-                    noIcon = true,
-                    timeLeft = 2000f
-                });
-            }
-            else if (result == OpResult.RolledBack)
-            {
-                Game1.addHUDMessage(new HUDMessage("跨箱整理校验未通过，已安全回滚", HUDMessage.error_type)
-                {
-                    noIcon = true,
-                    timeLeft = 2500f
-                });
+                ModEntry.Instance?.Monitor?.Log("跨箱整理校验未通过，已回滚。", LogLevel.Warn);
             }
         }
 
@@ -955,7 +937,7 @@ namespace RefinedStorage.UI
                 _group,
                 touchedGlobalSlots,
                 transferredFromSlots,
-                item => _config.EnableFavoriteLock && FavoriteLock.IsFavorite(item));
+                item => FavoriteLock.IsFavorite(item));
 
             RefreshChestItemNames();
             RefreshProjection();
@@ -1200,9 +1182,9 @@ namespace RefinedStorage.UI
 
         private void DrawHeaderBar(SpriteBatch b)
         {
-            // 与上文：上半木框已绘制完毕，紧贴顶部留白绘制搜索与状态栏
-            // 作用：绘制木框内顶部自建拼音搜索框、清空叉号按钮与箱组容量状态文本，彻底规避顶部颜色选择器遮挡
-            if (_config.EnableSearchBar && _searchBox != null)
+            // 与上文：上半木框已绘制完毕，紧贴顶部留白绘制搜索与容量栏
+            // 作用：绘制木框内顶部搜索框、清空叉号按钮与纯数字容量文本，彻底规避顶部颜色选择器遮挡
+            if (_searchBox != null)
             {
                 _searchBox.DrawBox(b);
 
@@ -1215,9 +1197,7 @@ namespace RefinedStorage.UI
             }
 
             int occupied = _group.CountOccupiedSlots();
-            string statusText = _window.IsFilterActive
-                ? $"{_group.ChestCount} 箱 · {occupied}/{_group.TotalCapacity} (匹配 {_window.TotalProjectedSlots})"
-                : $"{_group.ChestCount} 箱 · {occupied}/{_group.TotalCapacity}";
+            string statusText = $"{occupied}/{_group.TotalCapacity}";
 
             Vector2 textSize = Game1.smallFont.MeasureString(statusText);
             float statusX = ItemsToGrabMenu.xPositionOnScreen + ItemsToGrabMenu.width - textSize.X;

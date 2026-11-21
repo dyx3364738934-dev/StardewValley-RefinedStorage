@@ -226,7 +226,7 @@ namespace RefinedStorage.Storage
                 return OpResult.NothingThere;
 
             // 与上文：事前快照与初始总数守恒基准已锁定
-            // 作用：调用原版 organizeItemsInList 合并排序，校验数量与容量守恒后按箱序落盘并二次核对，失败立即全量回滚
+            // 作用：调用原版 organizeItemsInList 合并排序，校验守恒后仅对变化槽位最小差异落盘并二次核对，失败立即全量回滚
             try
             {
                 ItemGrabMenu.organizeItemsInList(workList);
@@ -251,7 +251,7 @@ namespace RefinedStorage.Storage
                     return OpResult.RolledBack;
                 }
 
-                int changed = 0;
+                var changedSlots = new List<int>();
                 for (int i = 0; i < cap; i++)
                 {
                     Item? target = i < sorted.Count ? sorted[i] : null;
@@ -260,16 +260,29 @@ namespace RefinedStorage.Storage
                         continue;
                     if (target != null && ReferenceEquals(target, priorItem) && target.Stack == priorStack)
                         continue;
-                    changed++;
+                    changedSlots.Add(i);
                 }
 
-                if (changed > 0)
+                if (changedSlots.Count > 0)
                 {
-                    for (int i = 0; i < cap; i++)
-                        group.SetSlot(i, null);
+                    for (int i = 0; i < changedSlots.Count; i++)
+                    {
+                        int slotIndex = changedSlots[i];
+                        if (snapshot[slotIndex].Item != null)
+                            group.SetSlot(slotIndex, null);
+                    }
 
-                    for (int i = 0; i < sorted.Count; i++)
-                        group.SetSlot(i, sorted[i]);
+                    for (int i = 0; i < changedSlots.Count; i++)
+                    {
+                        int slotIndex = changedSlots[i];
+                        Item? target = slotIndex < sorted.Count ? sorted[slotIndex] : null;
+                        if (target == null)
+                            continue;
+
+                        if (target.NetFields != null)
+                            target.onDetachedFromParent();
+                        group.SetSlot(slotIndex, target);
+                    }
                 }
 
                 group.NormalizeChestLists();
@@ -295,7 +308,7 @@ namespace RefinedStorage.Storage
                 }
 
                 stackCount = sorted.Count;
-                rewrittenSlots = changed;
+                rewrittenSlots = changedSlots.Count;
                 return OpResult.Ok;
             }
             catch

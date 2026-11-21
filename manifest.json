@@ -1,10 +1,12 @@
 {
   "Name": "精致存储",
   "Author": "Koko",
-  "Version": "2.3.0",
-  "Description": "邻居箱子自动连通，开箱即自动展开全部联排箱子物品；采用原版纹理、滚动条与搜索过滤，内置原版风拼音输入法与拼音/简拼直搜，提供物品栏左侧动态一键堆叠按钮与依次飞入汇总提示、收藏锁定、多人并发开箱实时同步、跨箱整理与工作台全场景覆盖（已完整替代 LinkedChests 与 QuickStack）。",
+  "Version": "2.4.1",
+  "Description": "相邻箱子合并存储，支持找物与一键堆叠。",
   "UniqueID": "Koko.RefinedStorage",
   "EntryDll": "RefinedStorage.dll",
   "MinimumApiVersion": "4.0.0",
-  "UpdateKeys": []
+  "UpdateKeys": [
+    "GitHub:dyx3364738934-dev/StardewValley-RefinedStorage"
+  ]
 }

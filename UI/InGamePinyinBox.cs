@@ -72,7 +72,6 @@ namespace RefinedStorage.UI
         public int Width { get; set; }
         public int Height { get; set; }
         public bool ChineseMode { get; set; } = true;
-        public bool BuiltInImeEnabled { get; set; } = true;
         public bool ConsumedEscapeThisTick { get; private set; }
 
         public Rectangle Bounds => new Rectangle(X, Y, Width, Height);
@@ -116,10 +115,7 @@ namespace RefinedStorage.UI
                         dispatcher.Subscriber = this;
                     }
 
-                    if (BuiltInImeEnabled)
-                    {
-                        NativeImeSuppressor.Suppress();
-                    }
+                    NativeImeSuppressor.Suppress();
 
                     _prevKb = ReadKeyboardStateSafe();
                     _shiftAloneCandidate = false;
@@ -215,7 +211,7 @@ namespace RefinedStorage.UI
             if (!ctrlDown && !altDown)
             {
                 ProcessBackspaceWithRepeat(cur, elapsedMs, priorityWords);
-                if (BuiltInImeEnabled && ChineseMode)
+                if (ChineseMode)
                 {
                     ProcessChineseModeKeys(cur, priorityWords);
                 }
@@ -246,10 +242,7 @@ namespace RefinedStorage.UI
             if (ModeButtonBounds.Contains(x, y))
             {
                 Selected = true;
-                if (BuiltInImeEnabled)
-                {
-                    ToggleInputMode();
-                }
+                ToggleInputMode();
                 return true;
             }
 
@@ -276,10 +269,7 @@ namespace RefinedStorage.UI
             if (ModeButtonBounds.Contains(x, y))
             {
                 Selected = true;
-                if (BuiltInImeEnabled)
-                {
-                    ToggleInputMode();
-                }
+                ToggleInputMode();
                 return true;
             }
 
@@ -343,7 +333,7 @@ namespace RefinedStorage.UI
 
             if (string.IsNullOrEmpty(_text) && !IsComposing && !_selected)
             {
-                const string placeholder = "点击搜索 (支持拼音/简拼)";
+                const string placeholder = "搜索";
                 Vector2 phSize = MeasureTextSafe(placeholder);
                 float phScale = phSize.X > innerMaxWidth ? innerMaxWidth / phSize.X : 1f;
                 float phY = Y + (Height - phSize.Y * phScale) / 2f + 1f;
@@ -398,7 +388,7 @@ namespace RefinedStorage.UI
 
             if (_candidateHitBoxes.Count == 0)
             {
-                const string emptyHint = "无匹配候选 (Enter 直输)";
+                const string emptyHint = "无候选";
                 float hintY = _candidateBarBounds.Y + (_candidateBarBounds.Height - lineHeight) / 2f + 1f;
                 Utility.drawTextWithShadow(b, emptyHint, _font, new Vector2(_candidateBarBounds.X + 18, hintY), _textColor * 0.6f);
             }
@@ -445,7 +435,7 @@ namespace RefinedStorage.UI
                 return;
             }
 
-            if (BuiltInImeEnabled && ChineseMode && IsComposing &&
+            if (ChineseMode && IsComposing &&
                 (inputChar == '-' || inputChar == ',' || inputChar == '+' || inputChar == '=' || inputChar == '.'))
             {
                 return;
@@ -565,9 +555,7 @@ namespace RefinedStorage.UI
             // 与上文：DrawBox 已完成主搜索木框及文本内容绘制
             // 作用：紧邻右侧绘制原版纹理框样式的 [中]/[英] 状态切换按钮
             Rectangle modeRect = ModeButtonBounds;
-            Color boxTint = !BuiltInImeEnabled
-                ? Color.White * 0.65f
-                : (ChineseMode ? new Color(255, 236, 188) : new Color(225, 232, 240));
+            Color boxTint = ChineseMode ? new Color(255, 236, 188) : new Color(225, 232, 240);
 
             IClickableMenu.drawTextureBox(
                 b,
@@ -586,10 +574,8 @@ namespace RefinedStorage.UI
                 return;
             }
 
-            string label = (BuiltInImeEnabled && ChineseMode) ? "中" : "英";
-            Color labelColor = !BuiltInImeEnabled
-                ? _textColor * 0.45f
-                : (ChineseMode ? new Color(165, 55, 15) : new Color(45, 75, 120));
+            string label = ChineseMode ? "中" : "英";
+            Color labelColor = ChineseMode ? new Color(165, 55, 15) : new Color(45, 75, 120);
 
             Vector2 labelSize = MeasureTextSafe(label);
             Vector2 labelPos = new Vector2(
@@ -639,7 +625,7 @@ namespace RefinedStorage.UI
             }
             else if (!curShift && prevShift)
             {
-                if (_shiftAloneCandidate && BuiltInImeEnabled)
+                if (_shiftAloneCandidate)
                 {
                     ToggleInputMode();
                 }
@@ -785,7 +771,7 @@ namespace RefinedStorage.UI
 
         private void ProcessEnglishModeKeys(KeyboardState cur)
         {
-            // 与上文：处于英文直输模式或已关闭内置拼音输入法
+            // 与上文：处于英文直输模式
             // 作用：按边沿检测直接追加字母（响应 Shift 大小写）、数字与空格到搜索文本，回车或 Esc 失焦
             bool shiftDown = IsShiftDown(cur);
             for (Keys key = Keys.A; key <= Keys.Z; key++)
@@ -1084,7 +1070,7 @@ namespace RefinedStorage.UI
             int popupWidth;
             if (totalCount == 0 || candidates == null)
             {
-                int hintWidth = (int)Math.Ceiling(MeasureTextSafe("无匹配候选 (Enter 直输)").X);
+                int hintWidth = (int)Math.Ceiling(MeasureTextSafe("无候选").X);
                 popupWidth = Math.Clamp(sidePad + hintWidth + 16 + rightSectionWidth, Math.Max(Width, 260), maxPopupWidth);
             }
             else
