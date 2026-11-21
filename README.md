@@ -1,27 +1,28 @@
-# 精致存储（RefinedStorage）
+# 简易存储 2.4.1
 
-相邻箱子合并存储，支持找物与一键堆叠。
+凑近的箱子会连接为一个整体。
+箱子打开会作为完整列表铺开。
+你可以搜索你想要找的东西。
+你可以锁定你物品栏里的东西。
+你可以一键把身上的同类物品放进箱子里。
+鼠标移到箱子上，箱子会闪一下，直接能看到里面装了什么。
+按快捷键可以在当前场景里快速找到东西在哪个箱子。
+附近的工作台会直接读取这个房间里所有箱子的材料。
 
-## 功能
-- 相邻玩家箱子（8 方向）开箱自动合并显示，支持跨箱整理与中文拼音搜索。
-- 鼠标移到地上箱子立即弹出内容预览，悬停时箱体闪烁。
-- 物品栏左侧按需显示一键堆叠按钮，悬停可预览即将存入的物品。
-- 工作台可读取同场景玩家箱子内的材料制作。
+## 按键
+- 锁定物品：鼠标中键（默认），指着物品按一下，一键堆叠时不会吸走它。
+- 找东西：`LeftControl + F`（默认），打字或拼音就能找，按 `Shift` 切中英文，按 `Esc` 关闭。
 
-## 操作按键
-- `MouseMiddle`（默认中键）：悬停物品切换收藏锁定，防一键堆叠吸走。
-- `LeftControl + F`（默认）：开关同场景找物雷达；输入时 `Shift` 切中/英，`Esc` 关闭。
+## 设置
+装了 Generic Mod Config Menu 可以在游戏里直接改，一共 6 项：
+- 单箱也用大窗口（默认关）
+- 全屋一键堆叠（默认开，关掉只收附近 5 格内的箱子）
+- 箱子悬停气泡（默认开）
+- 工作台全场景取料（默认开）
+- 收藏锁定按键（默认鼠标中键）
+- 找物雷达热键（默认 `LeftControl + F`）
 
-## 配置项（`config.json` / GMCM）
-| 配置项 | 说明 | 默认值 |
-| --- | --- | --- |
-| `ExpandSingleChest` | 单箱也用大窗口 | `false` |
-| `StackToWholeRoom` | 全屋一键堆叠（关掉仅堆叠5格内箱） | `true` |
-| `EnableChestHoverBubble` | 箱子悬停气泡 | `true` |
-| `EnableWorkbenchRangeBoost` | 工作台全场景取料 | `true` |
-| `FavoriteKey` | 收藏锁定按键 | `MouseMiddle` |
-| `ItemRadarKey` | 找物雷达热键 | `LeftControl + F` |
-
-## 运行要求
-- Stardew Valley 1.6+、SMAPI 4.0.0+；可选安装 Generic Mod Config Menu。
-- 请勿同时安装旧版 `LinkedChests` 与 `QuickStack`。
+## 安装
+- 需要 Stardew Valley 1.6+ 和 SMAPI 4.0.0+。
+- 解压 `RefinedStorage` 文件夹放进游戏的 `Mods` 目录。
+- 以前装过 `LinkedChests` 或 `QuickStack` 记得先删掉。
