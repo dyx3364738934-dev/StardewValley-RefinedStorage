@@ -1,43 +1,52 @@
-# Linked Chests
+# RefinedStorage（精致存储）
 
-星露谷物语 SMAPI Mod —— 相邻箱子链接，一键联排整理 + 滚轮切箱 + 工作台全场景覆盖。
+Stardew Valley 1.6+ SMAPI Mod。将 8 方向相邻的玩家箱子自动连通为一个可滚动、可搜索、可直接存取整理的统一存储视图，同时保留每个箱子的真实槽位与容量上限。
 
-## 功能
+## 核心特性
 
-- **🔗 联排整理**：8 方向相邻箱子自动链接，点击整理按钮跨箱子合并堆叠、原版规则排序、重新装填
-- **🔄 滚轮切箱**：打开链接箱子后鼠标滚轮切换查看同组其他箱子，大小箱子自动适配 UI
-- **🔧 工作台全场景覆盖**：工作台读取当前场景内所有箱子物品（已修复消耗 bug）
-- **📦 大小混搭**：大箱子(70格) 和 小箱子(36格) 混搭正确识别容量，分配正确
-- **📋 Quick Stack 联动**：检测到 Quick Stack 后自动触发联排整理
-- **🔌 API 开放**：`ILinkedChestsApi.TriggerSort(chest)`
+- **开箱自动展开联排网络**：打开任意相连箱子即展示全组物品，12 列（纯小箱）或 14 列（含大箱子）自适应布局。
+- **零私有物品池**：物品始终直接存放在各箱子的真实 `Items` 列表内，兼容原版存档与卸载安全。
+- **严格容器白名单**：仅连通玩家普通箱子（36 格）与大箱子（70 格），自动排除祝尼魔箱、迷你出货箱、冰箱、礼物盒、自动装填器、施肥器、全局库存箱、非玩家箱以及联机中被其他玩家锁定的箱子。
+- **原版风格交互**：保留原版木框纹理、调色板、右侧快速堆叠与整理按钮、鼠标滚轮翻页、原版游标滚动条以及多关键词 AND 搜索过滤。
+- **游戏内自建中文拼音输入法与简拼直搜（v2.1.0）**：内置 8,105 《通用规范汉字表》字库与游戏全物品词库，聚焦搜索栏时自动屏蔽系统输入法防遮挡与双倍录入；支持原版羊皮纸风候选浮窗、箱内已有物品置顶以及全拼/音节前缀/首字母简拼实时筛物。
+- **工作台全场景安全覆盖**：独立工作台自动读取当前场景内所有合法玩家箱子，同时屏蔽非普通玩家箱以防止材料异常消耗。
+- **QuickStack 联动**：暴露 `IRefinedStorageApi.TriggerSort(Chest)`，与 QuickStack 一键堆叠无缝协作。
 
-## 安装
+## 搜索与自建拼音输入法操作说明
 
-1. 安装 [SMAPI](https://smapi.io/) 4.0.0+
-2. 下载最新 [Release](https://github.com/dyx3364738934-dev/StardewValley-LinkedChests/releases)
-3. 解压到 `Stardew Valley/Mods/LinkedChests/`
-4. 启动游戏
+- **切换中/英模式**：点击搜索框右侧 `[中]`/`[英]` 按钮，或单独轻按一次 `Shift`（左/右 `Shift` 松开且未夹带其他按键）。
+- **输入与选词（`[中]` 模式）**：
+  - `A-Z`：输入拼音字母（支持 `v`/`u` 等价输入 `ü`，如 `lv`/`lu` -> 绿、`nv`/`nu` -> 女），箱内现有物品对应的词条优先排在 `1.` 号位。
+  - `Space`：选当前页第 1 个候选词上屏。
+  - `1-5`（主键盘或小键盘）：选当前页第 1-5 个候选词上屏；未拼写时直接输入数字 `1-5`。
+  - `-` / `,` / `PageUp` / `Up`（或候选窗 `<` 按钮/滚轮上滑）：候选词上一页。
+  - `=` / `.` / `PageDown` / `Down`（或候选窗 `>` 按钮/滚轮下滑）：候选词下一页。
+  - 鼠标左键点击候选词：直接选词上屏。
+  - `Backspace`：删除一个拼音字母或已上屏字符（长按自动连删）。
+  - `Enter`：拼写中时将当前拼音字母直接落入搜索框；非拼写状态则退出搜索框聚焦。
+  - `Esc`：拼写中时仅清空当前拼音缓冲（保持聚焦）；非拼写状态则退出搜索框聚焦。
+- **拼音与简拼实时直搜**：无论处于 `[中]` 拼写状态还是 `[英]` 英文状态，均可直接按全拼（如 `mutou` -> 木头）、音节前缀（如 `fangf` -> 防风草）或首字母简拼（如 `ym` -> 硬木、`wcsp` -> 五彩碎片、`lbs` -> 绿宝石）实时筛选箱内物品，并支持空格分隔多关键词 AND 过滤。
 
-## 配置
+## 配置项 (`config.json`)
 
-`Mods/LinkedChests/config.json`：
+| 配置项 | 说明 | 默认值 |
+| --- | --- | --- |
+| `EnableExpandedStorage` | 开箱自动展开联排箱子合并存储界面 | `true` |
+| `EnableSearchBar` | 在合并存储窗口顶部显示搜索过滤栏 | `true` |
+| `EnableLinkedSort` | 启用跨箱联排整理功能与对外 API | `true` |
+| `EnableWorkbenchRangeBoost` | 工作台读取同场景全部合法玩家箱子 | `true` |
+| `ShowNotification` | 整理操作完成后显示 HUD 提示 | `true` |
+| `ExpandSingleChest` | 单个未连排箱子是否也启用精致存储界面 | `false` |
+| `EnableBuiltInPinyinIme` | 启用游戏内自建原版风拼音输入法并隔离系统 IME | `true` |
 
-| 配置项 | 说明 | 默认 |
-|--------|------|------|
-| `EnableLinkedSort` | 联排整理 | `true` |
-| `ShowNotification` | HUD 通知 | `true` |
-| `EnableWorkbenchRangeBoost` | 工作台全场景 | `true` |
-| `EnableScrollSwitch` | 滚轮切箱 | `true` |
-
-## 兼容性
+## 依赖与兼容
 
 - Stardew Valley 1.6+
 - SMAPI 4.0.0+
-- Quick Stack mod（自动联动）
+- 替代旧版 `Koko.LinkedChests`（UniqueID 升级为 `Koko.RefinedStorage`）
+- 兼容 `Koko.QuickStack`（优先调用 `Koko.RefinedStorage` API，缺失时自动回退）
 
-## 版本历史
+## 源码与发布
 
-- **v1.3.2** — 按箱子滚轮，大小箱子 UI 自动切换
-- **v1.3.1** — GetChestCapacity 修复（GetActualCapacity）
-- **v1.3.0** — 虚拟滚轮切箱 + 工作台消耗修复
-- **v1.2.0** — 工作台全场景覆盖
+- GitHub 仓库：https://github.com/dyx3364738934-dev/StardewValley-RefinedStorage
+- 联动 Mod（Quick Stack）：https://github.com/dyx3364738934-dev/StardewValley-QuickStack

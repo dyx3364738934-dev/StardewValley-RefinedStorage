@@ -1,10 +1,10 @@
 {
-  "Name": "Linked Chests",
+  "Name": "精致存储",
   "Author": "Koko",
-  "Version": "1.3.2",
-  "Description": "邻居箱子自动链接，一键跨箱整理排序。鼠标滚轮切换查看同组箱子，大小箱子自动适配UI。工作台全场景覆盖。",
-  "UniqueID": "Koko.LinkedChests",
-  "EntryDll": "LinkedChests.dll",
+  "Version": "2.1.0",
+  "Description": "邻居箱子自动连通，打开箱子即自动展开全部联排箱子物品；采用原版箱子纹理、滚动条与搜索过滤，内置游戏内原版风拼音输入法与拼音/简拼直搜，支持跨箱整理与工作台全场景覆盖。",
+  "UniqueID": "Koko.RefinedStorage",
+  "EntryDll": "RefinedStorage.dll",
   "MinimumApiVersion": "4.0.0",
   "UpdateKeys": []
 }
